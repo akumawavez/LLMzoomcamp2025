@@ -1,0 +1,22 @@
+# Core functionality
+openai
+sentence-transformers
+transformers
+accelerate
+bitsandbytes
+
+# Retrieval & Vector DB
+elasticsearch
+python-dotenv
+pandas
+scikit-learn
+tqdm
+
+# UI / Notebook / CLI
+ipykernel
+streamlit
+
+# Optional / Extras
+groq         # if using Groq API instead of OpenAI :contentReference[oaicite:1]{index=1}
+dlt          # for ingesting data in later modules
+grafana-api  # for monitoring dashboards, if used
