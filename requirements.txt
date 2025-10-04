@@ -1,9 +1,10 @@
 # Core functionality
 openai
-sentence-transformers
-transformers
+sentence-transformers==3.0.1
+transformers==4.41.2
 accelerate
 bitsandbytes
+torch==2.3.1
 
 # Retrieval & Vector DB
 elasticsearch
