@@ -12,7 +12,8 @@ import streamlit as st
 from pypdf import PdfReader
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct
-from sentence_transformers import SentenceTransformer
+# from sentence_transformers import SentenceTransformer
+from fastembed import TextEmbedding
 
 
 
@@ -35,12 +36,21 @@ QDRANT_URL = os.environ.get("QDRANT_URL", "http://localhost:6333")
 QDRANT_COLLECTION = "property_docs"
 
 # =============================================================================
-# --- Initialize SentenceTransformer and Qdrant Client ---
+# --- Initialize SentenceTransformer/FastEmbed and Qdrant Client ---
 # =============================================================================
-os.environ["TORCH_LOAD_EAGER"] = "1"
-embedder = SentenceTransformer("all-MiniLM-L6-v2", device="cpu")
+# os.environ["TORCH_LOAD_EAGER"] = "1"
+# embedder = SentenceTransformer("all-MiniLM-L6-v2", device="cpu")
 # embedder = embedder.to("cpu", non_blocking=True)
-embedding_dim = embedder.get_sentence_embedding_dimension()
+# embedding_dim = embedder.get_sentence_embedding_dimension()
+
+# Initialize the lightweight embedder
+embedder = TextEmbedding(model_name="BAAI/bge-small-en")
+
+# FastEmbed model metadata
+# embedding_dim = embedder.embedding_dimension
+embedding_dim = len(list(embedder.embed(["test"]))[0])
+
+
 
 qdrant = QdrantClient(url=QDRANT_URL)
 
@@ -215,7 +225,9 @@ def process_pdf(uploaded_file) -> list[str]:
 
 def store_pdf_in_qdrant(file_name: str, chunks: list[str]):
     """Embed and store PDF chunks in Qdrant."""
-    embeddings = embedder.encode(chunks).tolist()
+    # embeddings = embedder.encode(chunks).tolist()   ---- For Sentence Transformers
+    embeddings = list(embedder.embed(chunks))     ## For FastEmbed
+
     points = [
         PointStruct(
             id=str(uuid.uuid4()),
@@ -227,9 +239,20 @@ def store_pdf_in_qdrant(file_name: str, chunks: list[str]):
     qdrant.upsert(collection_name=QDRANT_COLLECTION, points=points)
 
 
+# def retrieve_relevant_context(query: str, top_k: int = 3) -> str:
+#     """Retrieve top relevant text chunks from Qdrant for a given query."""
+#     query_emb = embedder.encode(query).flatten().tolist()
+#     search_result = qdrant.search(
+#         collection_name=QDRANT_COLLECTION,
+#         query_vector=query_emb,
+#         limit=top_k,
+#     )
+#     docs = [hit.payload["text"] for hit in search_result if "text" in hit.payload]
+#     return "\n\n".join(docs)
+
 def retrieve_relevant_context(query: str, top_k: int = 3) -> str:
     """Retrieve top relevant text chunks from Qdrant for a given query."""
-    query_emb = embedder.encode(query).flatten().tolist()
+    query_emb = list(embedder.embed([query]))[0]  # fastembed returns a generator
     search_result = qdrant.search(
         collection_name=QDRANT_COLLECTION,
         query_vector=query_emb,
@@ -254,15 +277,20 @@ def list_documents() -> list[str]:
     return sorted(list(sources))
 
 
+from qdrant_client.models import Filter, FieldCondition, MatchValue
+
 def delete_document(file_name: str):
     """Delete all vectors associated with a specific file from Qdrant."""
     qdrant.delete(
         collection_name=QDRANT_COLLECTION,
-        points_selector={
-            "filter": {
-                "must": [{"key": "source", "match": {"value": file_name}}]
-            }
-        },
+        points_selector=Filter(
+            must=[
+                FieldCondition(
+                    key="source",
+                    match=MatchValue(value=file_name)
+                )
+            ]
+        ),
     )
 
 
@@ -301,8 +329,8 @@ def main() -> None:
         render_hero_section()
 
         # # Display chat history
-        # for message in st.session_state["messages"]:
-        #     st.chat_message(message["role"]).write(message["content"])
+        for message in st.session_state["messages"]:
+            st.chat_message(message["role"]).write(message["content"])
 
         # Input for user prompt
         if prompt := st.chat_input("Ask about Dutch property buying, financing, or neighborhoods..."):
@@ -361,12 +389,6 @@ def main() -> None:
             st.session_state["messages"].append(
                 {"role": "assistant", "content": generated_text}
             )
-
-            import torch, transformers, sentence_transformers
-            st.write("torch:", torch.__version__)
-            st.write("transformers:", transformers.__version__)
-            st.write("sentence-transformers:", sentence_transformers.__version__)
-
 
     # -------------------------------------------------------------------------
     # 🧠 KNOWLEDGE MANAGEMENT TAB
