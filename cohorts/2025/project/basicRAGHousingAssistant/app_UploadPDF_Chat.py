@@ -317,7 +317,15 @@ def main() -> None:
                 augmented_prompt = prompt
 
             # Add augmented message to chat history
-            st.session_state["messages"].append({"role": "user", "content": augmented_prompt})
+            # st.session_state["messages"].append({"role": "user", "content": augmented_prompt})
+
+            # Store only the plain user question for history - to avoid accumulation of context as well
+            st.session_state["messages"].append({"role": "user", "content": prompt})
+
+            # Build a temporary history for this call
+            temp_history = build_history()
+            # Replace the latest user message in this temp history with the augmented one
+            temp_history[-1]["content"] = augmented_prompt
 
             # Prepare assistant placeholder
             placeholder = st.chat_message("assistant")
@@ -325,7 +333,7 @@ def main() -> None:
             generated_text = ""
 
             try:
-                for chunk in stream_ollama_response(build_history(), MODEL_NAME):
+                for chunk in stream_ollama_response(temp_history, MODEL_NAME):
                     generated_text += chunk
                     response_container.markdown(generated_text)
             except requests.exceptions.RequestException as exc:
