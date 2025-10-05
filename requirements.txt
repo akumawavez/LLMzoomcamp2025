@@ -3,6 +3,9 @@ openai
 sentence-transformers==3.0.1
 transformers==4.41.2
 fastembed
+langchain
+langchain-ollama
+langsmith
 accelerate
 bitsandbytes
 torch==2.3.1
@@ -23,3 +26,9 @@ groq         # if using Groq API instead of OpenAI :contentReference[oaicite:1]{
 dlt          # for ingesting data in later modules
 grafana-api  # for monitoring dashboards, if used
 pypdf
+
+
+## Need to incorporate history properly (use previous user prompts and outputs as context)
+## Need to incorporate langchain.
+## Need to improve chat interface (put at bottom)
+## Need to use firecrawl
