@@ -1,30 +1,30 @@
+## Referring https://github.com/ThomasJanssen-tech/Ollama-Chatbot
+
 """
 Dutch Real Estate Buyers Assistant – LangChain RAG Version
 Uses Qdrant for Knowledge Base Management and LangChain AgentExecutor for chat.
 """
 
 from __future__ import annotations
+import streamlit as st
+
+## Langchain modules and pdf processing.
+from pypdf import PdfReader
+from langchain_ollama import ChatOllama, OllamaEmbeddings
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
+
+## For Qdrant
+from qdrant_client import QdrantClient
+from qdrant_client.models import Filter, FieldCondition, MatchValue
+from qdrant_client.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchValue
+
+
+
 import os
 import json
 import uuid
-import streamlit as st
 from typing import List
 
-from pypdf import PdfReader
-from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchValue
-
-# LangChain imports
-from langchain.agents import AgentExecutor, create_tool_calling_agent
-from langchain_ollama import OllamaEmbeddings
-from langchain_ollama import ChatOllama
-
-from fastembed import TextEmbedding
-
-from langchain.chat_models import init_chat_model
-from langchain_core.messages import AIMessage, HumanMessage
-from langchain_core.prompts import PromptTemplate
-from langchain_core.tools import tool
 
 
 # =============================================================================
@@ -39,6 +39,7 @@ QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
 QDRANT_COLLECTION = "property_docs"
 CHAT_MODEL = os.getenv("CHAT_MODEL", "llama3.2:3b")
 EMBED_MODEL = os.getenv("EMBEDDING_MODEL", "nomic-embed-text")
+
 
 # =============================================================================
 # --- Initialize Qdrant and Embeddings ---
@@ -85,6 +86,19 @@ def store_pdf_in_qdrant(file_name: str, chunks: list[str]):
     qdrant.upsert(collection_name=QDRANT_COLLECTION, points=points)
 
 
+
+def retrieve_relevant_context(query: str, top_k: int = 1) -> str:
+    """Retrieve top relevant text chunks from Qdrant for a given query."""
+    # query_emb = list(embedder.embed([query]))[0]  # fastembed returns a generator
+    query_emb = embedder.embed_query(query)  ## For using OLLAMA.
+    search_result = qdrant.search(
+        collection_name=QDRANT_COLLECTION,
+        query_vector=query_emb,
+        limit=top_k,
+    )
+    docs = [hit.payload["text"] for hit in search_result if "text" in hit.payload]
+    return "\n\n".join(docs)
+
 def list_documents() -> list[str]:
     """List all distinct sources in Qdrant."""
     points, _ = qdrant.scroll(
@@ -114,128 +128,81 @@ def delete_document(file_name: str):
         ),
     )
 
-# =============================================================================
-# --- LangChain RAG Agent Setup ---
-# =============================================================================
-# llm = init_chat_model(
-#     model=CHAT_MODEL,
-#     model_provider="ollama",
-#     temperature=0,
-#     streaming=True,  # 👈 enable token streaming
-# )
 
-# llm.invoke("Hello")  # pre-warm
-
-llm = ChatOllama(model="llama3.2", streaming=True)
-
-with st.chat_message("assistant"):
-    placeholder = st.empty()
-    collected = ""
-
-    for chunk in llm.stream(user_question):
-        collected += chunk.content
-        placeholder.markdown(collected + "▌")
-    placeholder.markdown(collected)
-
-
-# Prompt Template
-prompt = PromptTemplate.from_template("""
-You are an expert assistant helping expats navigate the Dutch real estate market.
-Use the tool 'retrieve' to get context from uploaded documents.
-Answer clearly, concisely, and cite sources when applicable.
-
-The user question:
-{input}
-
-Chat history:
-{chat_history}
-
-Scratchpad:
-{agent_scratchpad}
-
-Return answer as plain text only.
-""")
-
-# Tool: retrieve
-@tool
-def retrieve(query: str):
-    """Retrieve relevant information for the user's query from Qdrant."""
-    query_emb = embedder.embed_query(query)
-    search_result = qdrant.search(
-        collection_name=QDRANT_COLLECTION,
-        query_vector=query_emb,
-        limit=3,
-    )
-
-    serialized = ""
-    for hit in search_result:
-        source = hit.payload.get("source", "unknown")
-        content = hit.payload.get("text", "")
-        serialized += f"Source: {source}\nContent: {content}\n\n"
-    return serialized
-
-tools = [retrieve]
-
-agent = create_tool_calling_agent(llm, tools, prompt)
-agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=False)
-
-# =============================================================================
-# --- Streamlit UI ---
-# =============================================================================
+# # =============================================================================
+# # --- Streamlit UI ---
+# # =============================================================================
 tab_chat, tab_knowledge = st.tabs(["💬 Assistant", "🧠 Knowledge Base"])
+
 
 # -------------------------------------------------------------------------
 # 💬 CHAT TAB
 # -------------------------------------------------------------------------
 with tab_chat:
-    st.title("💬 Dutch Real Estate Buyers Assistant")
+    st.title(PAGE_TITLE)
 
-    # Initialize chat history
+    # initialize chat history
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
-    # Display chat history
-    for msg in st.session_state.messages:
-        if isinstance(msg, HumanMessage):
+        st.session_state.messages.append(SystemMessage("""
+        You are an expert assistant helping international buyers navigate the Dutch 
+        real estate market. Provide concise, trustworthy answers, explain regulatory 
+        nuances, highlight risks, and suggest practical next steps. If a question is 
+        outside property purchasing, politely steer the user back on topic.
+                                                    """))
+
+    # display chat messages from history on app rerun
+    for message in st.session_state.messages:
+        if isinstance(message, HumanMessage):
             with st.chat_message("user"):
-                st.markdown(msg.content)
-        elif isinstance(msg, AIMessage):
+                st.markdown(message.content)
+        elif isinstance(message, AIMessage):
             with st.chat_message("assistant"):
-                st.markdown(msg.content)
+                st.markdown(message.content)
 
-    # Input
-    user_question = st.chat_input("Ask about buying property, mortgages, or regulations in the Netherlands...")
+    bottom_placeholder = st._bottom.empty()
 
-    if user_question:
-        # Display user input
+    # create the bar where we can type messages
+    prompt = bottom_placeholder.chat_input("What do you want to know about Dutch real estate?")
+
+    # did the user submit a prompt?
+    if prompt:
+
+        # add the message from the user (prompt) to the screen with streamlit
         with st.chat_message("user"):
-            st.markdown(user_question)
-        st.session_state.messages.append(HumanMessage(user_question))
+            st.markdown(prompt)
 
-        # # Call the LangChain agent
-        # result = agent_executor.invoke({
-        #     "input": user_question,
-        #     "chat_history": st.session_state.messages,
-        # })
+            st.session_state.messages.append(HumanMessage(prompt))
 
-        # ai_response = result["output"]
+        # create the echo (response) and add it to the screen
 
-        # # Display assistant reply
-        # with st.chat_message("assistant"):
-        #     st.markdown(ai_response)
-        # st.session_state.messages.append(AIMessage(ai_response))
+        llm = ChatOllama(
+            model="llama3.2:3b",
+            temperature=0
+        )
+
+        context = retrieve_relevant_context(prompt)
+
+        if context:
+            augmented_prompt = (
+                f"Use the following context extracted from uploaded documents to answer accurately:\n\n"
+                f"{context}\n\n"
+                f"User question: {prompt}"
+            )
+        else:
+            augmented_prompt = prompt
+
+        # result = llm.invoke(st.session_state.messages).content
+        result = llm.invoke(augmented_prompt).content
 
         with st.chat_message("assistant"):
-            placeholder = st.empty()
-            response = ""
+            st.markdown(result)
 
-            for event in agent_executor.stream({"input": user_question, "chat_history": st.session_state.messages}):
-                if "output" in event:
-                    response += event["output"]
-                    placeholder.markdown(response + "▌")
+            st.session_state.messages.append(AIMessage(result))
 
-            placeholder.markdown(response)
-            st.session_state.messages.append(AIMessage(response))
+            
+
 
 
 
