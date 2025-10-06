@@ -17,6 +17,7 @@ from qdrant_client.models import Distance, VectorParams, PointStruct, Filter, Fi
 # LangChain imports
 from langchain.agents import AgentExecutor, create_tool_calling_agent
 from langchain_ollama import OllamaEmbeddings
+from langchain_ollama import ChatOllama
 from fastembed import TextEmbedding
 from langchain.chat_models import init_chat_model
 from langchain_core.messages import AIMessage, HumanMessage
@@ -34,7 +35,7 @@ st.set_page_config(page_title=PAGE_TITLE, page_icon="🏠", layout="wide")
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
 QDRANT_COLLECTION = "property_docs"
-CHAT_MODEL = os.getenv("CHAT_MODEL", "llama3.2:latest")
+CHAT_MODEL = os.getenv("CHAT_MODEL", "llama3.2:3b")
 EMBED_MODEL = os.getenv("EMBEDDING_MODEL", "nomic-embed-text")
 
 # =============================================================================
@@ -114,11 +115,26 @@ def delete_document(file_name: str):
 # =============================================================================
 # --- LangChain RAG Agent Setup ---
 # =============================================================================
-llm = init_chat_model(
-    model=CHAT_MODEL,
-    model_provider="ollama",
-    temperature=0
-)
+# llm = init_chat_model(
+#     model=CHAT_MODEL,
+#     model_provider="ollama",
+#     temperature=0,
+#     streaming=True,  # 👈 enable token streaming
+# )
+
+# llm.invoke("Hello")  # pre-warm
+
+llm = ChatOllama(model="llama3.2", streaming=True)
+
+with st.chat_message("assistant"):
+    placeholder = st.empty()
+    collected = ""
+
+    for chunk in llm.stream(user_question):
+        collected += chunk.content
+        placeholder.markdown(collected + "▌")
+    placeholder.markdown(collected)
+
 
 # Prompt Template
 prompt = PromptTemplate.from_template("""
@@ -159,7 +175,7 @@ def retrieve(query: str):
 tools = [retrieve]
 
 agent = create_tool_calling_agent(llm, tools, prompt)
-agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
+agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=False)
 
 # =============================================================================
 # --- Streamlit UI ---
@@ -194,18 +210,32 @@ with tab_chat:
             st.markdown(user_question)
         st.session_state.messages.append(HumanMessage(user_question))
 
-        # Call the LangChain agent
-        result = agent_executor.invoke({
-            "input": user_question,
-            "chat_history": st.session_state.messages,
-        })
+        # # Call the LangChain agent
+        # result = agent_executor.invoke({
+        #     "input": user_question,
+        #     "chat_history": st.session_state.messages,
+        # })
 
-        ai_response = result["output"]
+        # ai_response = result["output"]
 
-        # Display assistant reply
+        # # Display assistant reply
+        # with st.chat_message("assistant"):
+        #     st.markdown(ai_response)
+        # st.session_state.messages.append(AIMessage(ai_response))
+
         with st.chat_message("assistant"):
-            st.markdown(ai_response)
-        st.session_state.messages.append(AIMessage(ai_response))
+            placeholder = st.empty()
+            response = ""
+
+            for event in agent_executor.stream({"input": user_question, "chat_history": st.session_state.messages}):
+                if "output" in event:
+                    response += event["output"]
+                    placeholder.markdown(response + "▌")
+
+            placeholder.markdown(response)
+            st.session_state.messages.append(AIMessage(response))
+
+
 
 # -------------------------------------------------------------------------
 # 🧠 KNOWLEDGE BASE TAB
