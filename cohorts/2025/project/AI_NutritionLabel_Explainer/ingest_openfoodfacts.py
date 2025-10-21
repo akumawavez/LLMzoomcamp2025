@@ -13,9 +13,9 @@ import os
 import re
 import pandas as pd
 from tqdm import tqdm
-from ollama import embed
+from langchain_ollama import ChatOllama, OllamaEmbeddings
 from qdrant_client import QdrantClient, models
-
+import uuid
 # ----------------------------
 # Configuration
 # ----------------------------
@@ -32,6 +32,8 @@ DISTANCE_METRIC = models.Distance.COSINE
 
 # Embedding model
 EMBED_MODEL = "nomic-embed-text"
+
+embedding_model = OllamaEmbeddings(model=EMBED_MODEL)
 
 # Performance tuning
 CHUNKSIZE = 1000       # rows per read iteration
@@ -155,7 +157,12 @@ def ingest_openfoodfacts():
                 if len(text) < 50:
                     continue
 
-                emb = embed(model=EMBED_MODEL, input=text)["embedding"]
+                # emb = embed(model=EMBED_MODEL, input=text)["embedding"]
+
+                
+                emb = embedding_model.embed_query(text)
+                if not emb:
+                    continue
 
                 payload = {
                     "product_name": row.get("product_name"),
@@ -166,7 +173,8 @@ def ingest_openfoodfacts():
                 }
 
                 point = models.PointStruct(
-                    id=int(row.get("code", total_records + 1)),
+                    # id=int(row.get("code", total_records + 1)),
+                    id=str(row.get("code") or uuid.uuid4()),
                     vector=emb,
                     payload=payload
                 )

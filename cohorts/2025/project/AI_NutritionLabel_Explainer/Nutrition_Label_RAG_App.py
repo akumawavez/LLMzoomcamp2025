@@ -4,8 +4,7 @@ AI Nutrition Label Explainer – Streamlit RAG App
 Tabs:
 - 💬 Ask Nutrition Assistant: Chat interface powered by Ollama + Qdrant.
 - 🍽 Data Ingestion: Runs ingestion of Open Food Facts data (.csv.gz).
-"""
-"""
+
 AI Nutrition Label Explainer – LangChain + Streamlit version
 Local, no FastAPI. Includes evaluation of retrieval methods.
 """
@@ -18,17 +17,23 @@ import streamlit as st
 from typing import List, Dict
 from qdrant_client import QdrantClient
 from qdrant_client.models import Filter, FieldCondition, MatchText
+
+# from langchain_community.memory import ConversationBufferMemory
+
+st.set_page_config(page_title="AI Nutrition Label Explainer", page_icon="🥗", layout="wide")
+
+
+
 from langchain_ollama import ChatOllama, OllamaEmbeddings
 from langchain_core.documents import Document
 from langchain_core.retrievers import BaseRetriever
-from langchain.vectorstores import Qdrant
-from langchain.chains import RetrievalQA
+# from langchain.vectorstores import Qdrant
+# from langchain.chains import RetrievalQA
 from sklearn.metrics import label_ranking_average_precision_score
 
 # =============================================================================
 # --- Configuration ---
 # =============================================================================
-st.set_page_config(page_title="AI Nutrition Label Explainer", page_icon="🥗", layout="wide")
 
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
