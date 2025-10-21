@@ -3,3 +3,61 @@
 /Qdrant_Docker
 /ElasticSearch_Docker
 .env
+
+# --- Common large file types ---
+*.zip
+*.tar
+*.tar.gz
+*.gz
+*.7z
+*.rar
+*.bz2
+*.xz
+
+# --- Large datasets ---
+*.csv
+*.tsv
+*.jsonl
+*.parquet
+*.sqlite
+*.db
+
+# --- Binary files and models ---
+*.h5
+*.hdf5
+*.pth
+*.pt
+*.onnx
+*.pb
+*.ckpt
+*.model
+*.bin
+*.npz
+*.npy
+
+# --- Media files ---
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.mp3
+*.wav
+*.flac
+*.jpg
+*.jpeg
+*.png
+*.tiff
+
+# --- Archives / backups ---
+*.bak
+*.old
+*.log
+*.tmp
+
+# --- Jupyter notebook checkpoints ---
+.ipynb_checkpoints/
+
+# --- System / editor files ---
+.DS_Store
+Thumbs.db
+~$*
