@@ -6,7 +6,7 @@ filters 5 key categories, embeds with Ollama (nomic-embed-text),
 and stores results in a local Qdrant collection for RAG retrieval.
 
 Usage:
-    python ingest_openfoodfacts_optimized.py
+    python ingest_openfoodfacts.py
 """
 
 import os
@@ -15,6 +15,15 @@ import pandas as pd
 from tqdm import tqdm
 from langchain_ollama import ChatOllama, OllamaEmbeddings
 from qdrant_client import QdrantClient, models
+import streamlit as st
+import sys
+st.write("🐍 Using Python executable:", sys.executable)
+
+## For Qdrant
+from qdrant_client import QdrantClient
+from qdrant_client.models import Filter, FieldCondition, MatchValue
+from qdrant_client.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchValue
+
 import uuid
 # ----------------------------
 # Configuration
@@ -109,15 +118,39 @@ def format_product_text(row: pd.Series) -> str:
 # Qdrant Setup
 # ----------------------------
 
+# def init_qdrant():
+#     """Initialize or recreate Qdrant collection."""
+#     client = QdrantClient(url=QDRANT_URL)
+#     client.recreate_collection(
+#         collection_name=COLLECTION_NAME,
+#         vectors_config=models.VectorParams(size=VECTOR_SIZE, distance=DISTANCE_METRIC)
+#     )
+#     print(f"✅ Qdrant collection '{COLLECTION_NAME}' ready at {QDRANT_URL}")
+#     return client
+
+from qdrant_client import QdrantClient, models
+
 def init_qdrant():
-    """Initialize or recreate Qdrant collection."""
+    """Initialize or recreate Qdrant collection safely."""
     client = QdrantClient(url=QDRANT_URL)
-    client.recreate_collection(
+
+    # Delete the collection if it already exists
+    if client.collection_exists(COLLECTION_NAME):
+        print(f"♻️ Collection '{COLLECTION_NAME}' already exists — deleting it...")
+        client.delete_collection(COLLECTION_NAME)
+
+    # Create the new collection
+    client.create_collection(
         collection_name=COLLECTION_NAME,
-        vectors_config=models.VectorParams(size=VECTOR_SIZE, distance=DISTANCE_METRIC)
+        vectors_config=models.VectorParams(
+            size=VECTOR_SIZE,
+            distance=DISTANCE_METRIC
+        ),
     )
+
     print(f"✅ Qdrant collection '{COLLECTION_NAME}' ready at {QDRANT_URL}")
     return client
+
 
 
 # ----------------------------
@@ -174,7 +207,8 @@ def ingest_openfoodfacts():
 
                 point = models.PointStruct(
                     # id=int(row.get("code", total_records + 1)),
-                    id=str(row.get("code") or uuid.uuid4()),
+                    # id=str(row.get("code") or uuid.uuid4()),
+                    id = int(row["code"]) if str(row.get("code", "")).isdigit() else str(uuid.uuid4()),
                     vector=emb,
                     payload=payload
                 )
