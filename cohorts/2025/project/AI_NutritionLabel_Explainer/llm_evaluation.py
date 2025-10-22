@@ -15,9 +15,19 @@ Metrics evaluated:
 import json
 import os
 import time
+import logging
 from typing import List, Dict, Any, Tuple
+from datetime import datetime
 import pandas as pd
 from dataclasses import dataclass
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+logger = logging.getLogger(__name__)
 
 # RAGAS imports
 from ragas import evaluate
@@ -55,9 +65,23 @@ class LLMEvaluator:
     
     def __init__(self):
         """Initialize the evaluator with models and clients"""
+        logger.info("="*60)
+        logger.info("Initializing LLM Evaluator")
+        logger.info("="*60)
+        
+        logger.info(f"Connecting to Ollama at {OLLAMA_URL}")
+        logger.info(f"Chat Model: {CHAT_MODEL}")
+        logger.info(f"Embedding Model: {EMBED_MODEL}")
+        
         self.llm = ChatOllama(model=CHAT_MODEL, temperature=0)
+        logger.info("✓ LLM initialized successfully")
+        
         self.embeddings = OllamaEmbeddings(model=EMBED_MODEL)
+        logger.info("✓ Embeddings initialized successfully")
+        
+        logger.info(f"Connecting to Qdrant at {QDRANT_URL}")
         self.qdrant_client = QdrantClient(url=QDRANT_URL)
+        logger.info(f"✓ Qdrant client connected (collection: {COLLECTION})")
         
         # Define prompt templates
         self.prompt_templates = {
@@ -66,6 +90,8 @@ class LLMEvaluator:
             "Conversational Assistant": self._get_conversational_prompt(),
             "Fact-Based Analytical": self._get_fact_based_prompt()
         }
+        logger.info(f"✓ Loaded {len(self.prompt_templates)} prompt templates")
+        logger.info("Evaluator initialization complete\n")
     
     def _get_current_prompt(self) -> str:
         """Current baseline prompt"""
@@ -118,8 +144,11 @@ Question: {question}"""
     
     def load_test_dataset(self, file_path: str) -> List[Dict]:
         """Load test dataset from JSON file"""
+        logger.info(f"Loading test dataset from: {file_path}")
         with open(file_path, 'r', encoding='utf-8') as f:
-            return json.load(f)
+            data = json.load(f)
+        logger.info(f"✓ Loaded {len(data)} test questions")
+        return data
     
     def embed_text(self, text: str) -> List[float]:
         """Helper to embed a single text query"""
@@ -127,14 +156,19 @@ Question: {question}"""
     
     def retrieve_documents(self, query: str, k: int = 5) -> List[Dict]:
         """Retrieve documents using hybrid search + reranking (best method)"""
+        # Embedding
+        start_time = time.time()
         query_vector = self.embed_text(query)
+        embed_time = time.time() - start_time
         
         # Hybrid retrieval
+        start_time = time.time()
         hits = self.qdrant_client.search(
             collection_name=COLLECTION,
             query_vector=query_vector,
             limit=k,
         )
+        search_time = time.time() - start_time
         
         results = [
             {
@@ -145,8 +179,15 @@ Question: {question}"""
             for h in hits
         ]
         
+        logger.debug(f"  Retrieved {len(results)} docs (embed: {embed_time:.2f}s, search: {search_time:.2f}s)")
+        
         # LLM-based reranking
-        return self._rerank_with_llm(query, results)
+        start_time = time.time()
+        reranked = self._rerank_with_llm(query, results)
+        rerank_time = time.time() - start_time
+        logger.debug(f"  Reranked documents ({rerank_time:.2f}s)")
+        
+        return reranked
     
     def _rerank_with_llm(self, query: str, docs: List[Dict]) -> List[Dict]:
         """Lightweight reranker using LLM"""
@@ -177,12 +218,16 @@ Output a comma-separated list of document indices (best to worst)."""
     
     def prepare_evaluation_data(self, test_data: List[Dict]) -> Tuple[List[str], List[List[str]], List[str]]:
         """Prepare data for RAGAS evaluation"""
+        logger.info("\nPreparing evaluation data (retrieving documents for all questions)...")
+        
         questions = []
         contexts = []
         answers = []
         
-        for item in test_data:
+        total = len(test_data)
+        for idx, item in enumerate(test_data, 1):
             # Retrieve documents for each question
+            logger.info(f"[{idx}/{total}] Retrieving docs for: '{item['question'][:60]}...'")
             docs = self.retrieve_documents(item["question"], k=5)
             context_texts = [d["payload"].get("text", "") for d in docs]
             
@@ -190,43 +235,68 @@ Output a comma-separated list of document indices (best to worst)."""
             contexts.append(context_texts)
             answers.append("")  # Will be filled by each prompt variant
         
+        logger.info(f"✓ Retrieved documents for all {total} questions\n")
         return questions, contexts, answers
     
     def evaluate_prompt_template(self, prompt_name: str, prompt_template: str, 
                                test_data: List[Dict]) -> EvaluationResult:
         """Evaluate a single prompt template using RAGAS"""
-        print(f"Evaluating {prompt_name}...")
+        logger.info("="*60)
+        logger.info(f"Evaluating Prompt Template: {prompt_name}")
+        logger.info("="*60)
+        
+        eval_start = time.time()
         
         questions, contexts, _ = self.prepare_evaluation_data(test_data)
         
         # Generate answers for this prompt template
+        logger.info(f"\nGenerating answers using '{prompt_name}' prompt...")
         answers = []
         sample_answers = []
         
-        for i, (question, context_list) in enumerate(zip(questions, contexts)):
+        total = len(questions)
+        for i, (question, context_list) in enumerate(zip(questions, contexts), 1):
+            logger.info(f"[{i}/{total}] Generating answer for: '{question[:60]}...'")
+            start_time = time.time()
+            
             context_text = "\n\n".join(context_list)
             answer = self.generate_answer(question, context_text, prompt_template)
             answers.append(answer)
+            
+            gen_time = time.time() - start_time
+            logger.debug(f"  Answer generated ({gen_time:.2f}s, {len(answer)} chars)")
             
             # Store first 3 answers as samples
             if i < 3:
                 sample_answers.append(answer)
         
+        logger.info(f"✓ Generated all {total} answers")
+        
         # Prepare dataset for RAGAS
+        logger.info("\nPreparing dataset for RAGAS evaluation...")
         eval_dataset = Dataset.from_dict({
             "question": questions,
             "contexts": contexts,
             "answer": answers
         })
+        logger.info(f"✓ Dataset prepared ({len(questions)} samples)")
         
         # Run RAGAS evaluation
+        logger.info("\nRunning RAGAS metrics calculation...")
+        logger.info("This may take several minutes depending on the LLM speed...")
+        
         try:
+            ragas_start = time.time()
+            
             result = evaluate(
                 eval_dataset,
                 metrics=[faithfulness, answer_relevancy, context_precision, context_recall],
                 llm=self.llm,
                 embeddings=self.embeddings
             )
+            
+            ragas_time = time.time() - ragas_start
+            logger.info(f"✓ RAGAS evaluation completed ({ragas_time:.2f}s)")
             
             # Extract metrics
             faithfulness_score = result['faithfulness']
@@ -236,6 +306,19 @@ Output a comma-separated list of document indices (best to worst)."""
             
             avg_score = (faithfulness_score + answer_relevancy_score + 
                         context_precision_score + context_recall_score) / 4
+            
+            # Log results
+            logger.info("\n" + "-"*60)
+            logger.info(f"Results for '{prompt_name}':")
+            logger.info(f"  Faithfulness:       {faithfulness_score:.3f}")
+            logger.info(f"  Answer Relevancy:   {answer_relevancy_score:.3f}")
+            logger.info(f"  Context Precision:  {context_precision_score:.3f}")
+            logger.info(f"  Context Recall:     {context_recall_score:.3f}")
+            logger.info(f"  Average Score:      {avg_score:.3f}")
+            logger.info("-"*60)
+            
+            eval_total_time = time.time() - eval_start
+            logger.info(f"Total evaluation time for '{prompt_name}': {eval_total_time:.2f}s\n")
             
             return EvaluationResult(
                 prompt_name=prompt_name,
@@ -248,7 +331,9 @@ Output a comma-separated list of document indices (best to worst)."""
             )
             
         except Exception as e:
-            print(f"Error evaluating {prompt_name}: {e}")
+            logger.error(f"❌ Error evaluating {prompt_name}: {e}", exc_info=True)
+            logger.warning(f"Returning default scores for {prompt_name}")
+            
             # Return default scores if evaluation fails
             return EvaluationResult(
                 prompt_name=prompt_name,
@@ -262,16 +347,46 @@ Output a comma-separated list of document indices (best to worst)."""
     
     def run_full_evaluation(self, test_data_path: str) -> List[EvaluationResult]:
         """Run evaluation on all prompt templates"""
-        print("Loading test dataset...")
+        overall_start = time.time()
+        
+        logger.info("\n" + "="*60)
+        logger.info("STARTING FULL LLM EVALUATION")
+        logger.info("="*60 + "\n")
+        
         test_data = self.load_test_dataset(test_data_path)
         
-        print(f"Evaluating {len(self.prompt_templates)} prompt templates on {len(test_data)} questions...")
+        logger.info(f"\nEvaluating {len(self.prompt_templates)} prompt templates on {len(test_data)} questions...")
+        logger.info("Prompt templates to evaluate:")
+        for i, name in enumerate(self.prompt_templates.keys(), 1):
+            logger.info(f"  {i}. {name}")
+        logger.info("")
         
         results = []
-        for prompt_name, prompt_template in self.prompt_templates.items():
+        for idx, (prompt_name, prompt_template) in enumerate(self.prompt_templates.items(), 1):
+            logger.info(f"\n{'#'*60}")
+            logger.info(f"Prompt {idx}/{len(self.prompt_templates)}: {prompt_name}")
+            logger.info(f"{'#'*60}\n")
+            
             result = self.evaluate_prompt_template(prompt_name, prompt_template, test_data)
             results.append(result)
-            print(f"Completed {prompt_name}: Avg Score = {result.avg_score:.3f}")
+            
+            logger.info(f"✓ Completed {prompt_name}: Avg Score = {result.avg_score:.3f}\n")
+        
+        # Final summary
+        overall_time = time.time() - overall_start
+        logger.info("\n" + "="*60)
+        logger.info("EVALUATION COMPLETE")
+        logger.info("="*60)
+        logger.info(f"\nTotal evaluation time: {overall_time:.2f}s ({overall_time/60:.2f} minutes)")
+        logger.info("\nFinal Rankings:")
+        
+        sorted_results = sorted(results, key=lambda x: x.avg_score, reverse=True)
+        for rank, result in enumerate(sorted_results, 1):
+            logger.info(f"  {rank}. {result.prompt_name}: {result.avg_score:.3f}")
+        
+        best_result = sorted_results[0]
+        logger.info(f"\n🏆 Best performing prompt: {best_result.prompt_name}")
+        logger.info("="*60 + "\n")
         
         return results
     
@@ -282,6 +397,8 @@ Output a comma-separated list of document indices (best to worst)."""
     
     def save_results(self, results: List[EvaluationResult], output_path: str):
         """Save evaluation results to CSV"""
+        logger.info(f"Saving results to {output_path}...")
+        
         data = []
         for result in results:
             data.append({
@@ -295,35 +412,32 @@ Output a comma-separated list of document indices (best to worst)."""
         
         df = pd.DataFrame(data)
         df.to_csv(output_path, index=False)
-        print(f"Results saved to {output_path}")
+        logger.info(f"✓ Results saved to {output_path}")
 
 def main():
     """Main function for standalone evaluation"""
-    evaluator = LLMEvaluator()
+    logger.info("Starting standalone LLM evaluation script...")
     
-    # Run evaluation
-    test_data_path = "data_ingestion/llm_eval_test_set.json"
-    results = evaluator.run_full_evaluation(test_data_path)
-    
-    # Display results
-    print("\n" + "="*60)
-    print("EVALUATION RESULTS")
-    print("="*60)
-    
-    for result in results:
-        print(f"\n{result.prompt_name}:")
-        print(f"  Faithfulness: {result.faithfulness:.3f}")
-        print(f"  Answer Relevancy: {result.answer_relevancy:.3f}")
-        print(f"  Context Precision: {result.context_precision:.3f}")
-        print(f"  Context Recall: {result.context_recall:.3f}")
-        print(f"  Average Score: {result.avg_score:.3f}")
-    
-    # Get best prompt
-    best_name, best_template = evaluator.get_best_prompt(results)
-    print(f"\nBest performing prompt: {best_name}")
-    
-    # Save results
-    evaluator.save_results(results, "llm_evaluation_results.csv")
+    try:
+        evaluator = LLMEvaluator()
+        
+        # Run evaluation
+        test_data_path = "data_ingestion/llm_eval_test_set.json"
+        results = evaluator.run_full_evaluation(test_data_path)
+        
+        # Get best prompt
+        best_name, best_template = evaluator.get_best_prompt(results)
+        logger.info(f"\n🏆 Best performing prompt: {best_name}")
+        logger.info(f"\nBest prompt template:\n{best_template}")
+        
+        # Save results
+        evaluator.save_results(results, "llm_evaluation_results.csv")
+        
+        logger.info("\n✓ Evaluation script completed successfully!")
+        
+    except Exception as e:
+        logger.error(f"❌ Evaluation script failed: {e}", exc_info=True)
+        raise
 
 if __name__ == "__main__":
     main()

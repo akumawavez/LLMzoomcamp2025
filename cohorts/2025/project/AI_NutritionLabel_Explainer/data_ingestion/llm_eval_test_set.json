@@ -13,7 +13,10 @@
     "question": "Is this drink low in sodium?",
     "contexts": [],
     "answer": ""
-  },
+  }
+  // Commented out for testing - uncomment for full evaluation
+  /*
+  ,
   {
     "question": "What are the health benefits of eating breakfast cereals?",
     "contexts": [],
@@ -149,4 +152,5 @@
     "contexts": [],
     "answer": ""
   }
+  */
 ]
