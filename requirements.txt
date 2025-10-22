@@ -36,6 +36,9 @@ dlt          # for ingesting data in later modules
 grafana-api  # for monitoring dashboards, if used
 pypdf
 
+# LLM Evaluation
+ragas>=0.1.0  # for RAG evaluation metrics
+
 
 ## Need to incorporate history properly (use previous user prompts and outputs as context)
 ## Need to incorporate langchain.
