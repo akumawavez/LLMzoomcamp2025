@@ -14,6 +14,7 @@ import time
 import subprocess
 import pandas as pd
 import streamlit as st
+import uuid
 from typing import List, Dict
 from qdrant_client import QdrantClient
 from qdrant_client.models import Filter, FieldCondition, MatchText
@@ -41,6 +42,9 @@ from sklearn.metrics import label_ranking_average_precision_score
 # Import LLM evaluation module
 from llm_evaluation import LLMEvaluator
 
+# Import feedback manager
+from feedback_manager import FeedbackManager
+
 # =============================================================================
 # --- Configuration ---
 # =============================================================================
@@ -55,6 +59,9 @@ EMBED_MODEL = os.getenv("EMBED_MODEL", "nomic-embed-text")
 llm = ChatOllama(model=CHAT_MODEL, temperature=0)
 embeddings = OllamaEmbeddings(model=EMBED_MODEL)
 qdrant_client = QdrantClient(url=QDRANT_URL)
+
+# Initialize feedback manager
+feedback_manager = FeedbackManager()
 
 # =============================================================================
 # --- Utility: LangChain Retriever Wrappers ---
@@ -178,7 +185,7 @@ Output a comma-separated list of document indices (best to worst)."""
 # =============================================================================
 # --- Tabs ---
 # =============================================================================
-tab_chat, tab_ingest, tab_eval, tab_llm_eval = st.tabs(["💬 Chat Assistant", "🍽 Data Ingestion", "📊 Retrieval Evaluation", "🎯 LLM Evaluation"])
+tab_chat, tab_ingest, tab_eval, tab_llm_eval, tab_monitoring = st.tabs(["💬 Chat Assistant", "🍽 Data Ingestion", "📊 Retrieval Evaluation", "🎯 LLM Evaluation", "📊 Monitoring Dashboard"])
 
 # -------------------------------------------------------------------------
 # 💬 CHAT TAB
@@ -255,9 +262,54 @@ Question: {question}"""
         answer = llm.invoke(prompt).content
         latency = round((time.time() - t0) * 1000, 1)
 
+        # Generate unique interaction ID
+        interaction_id = str(uuid.uuid4())
+        
+        # Save interaction data
+        feedback_manager.save_interaction(
+            interaction_id=interaction_id,
+            query=query,
+            answer=answer,
+            context=context_text,
+            method=mode,
+            latency=latency,
+            num_docs=len(docs)
+        )
+
         with st.chat_message("assistant"):
             st.markdown(answer)
             st.caption(f"Latency: {latency} ms, Retrieved docs: {len(docs)}")
+            
+            # Add feedback UI
+            st.markdown("---")
+            st.markdown("**Was this response helpful?**")
+            
+            col1, col2, col3 = st.columns([1, 1, 2])
+            
+            with col1:
+                thumbs_up = st.button("👍", key=f"thumbs_up_{interaction_id}", help="Thumbs up")
+                if thumbs_up:
+                    feedback_manager.save_user_feedback(interaction_id, thumbs_up=True)
+                    st.success("Thank you for your feedback!")
+            
+            with col2:
+                thumbs_down = st.button("👎", key=f"thumbs_down_{interaction_id}", help="Thumbs down")
+                if thumbs_down:
+                    feedback_manager.save_user_feedback(interaction_id, thumbs_up=False)
+                    st.success("Thank you for your feedback!")
+            
+            with col3:
+                star_rating = st.selectbox(
+                    "Rate this response (1-5 stars):",
+                    options=["", "⭐", "⭐⭐", "⭐⭐⭐", "⭐⭐⭐⭐", "⭐⭐⭐⭐⭐"],
+                    key=f"stars_{interaction_id}",
+                    help="Rate the quality of this response"
+                )
+                if star_rating and star_rating != "":
+                    rating_value = len(star_rating)
+                    feedback_manager.save_user_feedback(interaction_id, star_rating=rating_value)
+                    st.success(f"Thank you! Rated {rating_value} stars!")
+        
         st.session_state.history.append({"role": "assistant", "content": answer})
 
         # with st.expander("🔍 Retrieved Context"):
@@ -464,4 +516,212 @@ with tab_llm_eval:
                 st.write("---")
         else:
             st.info("Run evaluation first to view prompt templates.")
+
+# -------------------------------------------------------------------------
+# 📊 MONITORING DASHBOARD TAB
+# -------------------------------------------------------------------------
+with tab_monitoring:
+    st.header("📊 Monitoring Dashboard")
+    st.write("Comprehensive analytics and user feedback insights for the AI Nutrition Label Explainer.")
+    
+    # Get metrics
+    metrics = feedback_manager.get_metrics()
+    
+    # KPI Metrics Row
+    st.subheader("📈 Key Performance Indicators")
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric(
+            label="Total Queries",
+            value=metrics["total_queries"],
+            delta=None
+        )
+    
+    with col2:
+        st.metric(
+            label="Avg Satisfaction",
+            value=f"{metrics['avg_satisfaction']}%",
+            delta=None
+        )
+    
+    with col3:
+        st.metric(
+            label="Avg Latency",
+            value=f"{metrics['avg_latency']} ms",
+            delta=None
+        )
+    
+    with col4:
+        st.metric(
+            label="Error Rate",
+            value=f"{metrics['error_rate']}%",
+            delta=None
+        )
+    
+    # Additional metrics
+    col5, col6 = st.columns(2)
+    with col5:
+        st.metric(
+            label="Feedback Rate",
+            value=f"{metrics['feedback_rate']}%",
+            delta=None
+        )
+    
+    with col6:
+        st.metric(
+            label="Avg Star Rating",
+            value=f"{metrics['avg_star_rating']}/5",
+            delta=None
+        )
+    
+    # Charts Section
+    st.subheader("📊 Analytics Charts")
+    
+    if metrics["total_queries"] == 0:
+        st.info("No data available yet. Start using the chat assistant to see analytics!")
+    else:
+        # Create two columns for charts
+        col_left, col_right = st.columns(2)
+        
+        with col_left:
+            # Chart 1: User Feedback Trends Over Time
+            st.subheader("📈 Feedback Trends Over Time")
+            trends_df = feedback_manager.get_feedback_trends()
+            
+            if not trends_df.empty:
+                st.line_chart(
+                    trends_df.set_index('time_group')['satisfaction_rate'],
+                    use_container_width=True
+                )
+                st.caption("Satisfaction rate (%) over time")
+            else:
+                st.info("No feedback data available yet.")
+            
+            # Chart 3: Query Volume Metrics
+            st.subheader("📊 Query Volume")
+            volume_df = feedback_manager.get_query_volume()
+            
+            if not volume_df.empty:
+                st.bar_chart(
+                    volume_df.set_index('time_group')['query_count'],
+                    use_container_width=True
+                )
+                st.caption("Number of queries over time")
+            else:
+                st.info("No query data available yet.")
+            
+            # Chart 5: Top Queried Products/Categories
+            st.subheader("🏆 Top Queried Products")
+            top_products_df = feedback_manager.get_top_products()
+            
+            if not top_products_df.empty:
+                st.bar_chart(
+                    top_products_df.set_index('product')['count'],
+                    use_container_width=True
+                )
+                st.caption("Most frequently queried products")
+            else:
+                st.info("No product data available yet.")
+        
+        with col_right:
+            # Chart 2: Response Latency Analysis
+            st.subheader("⏱️ Response Latency Analysis")
+            latency_analysis = feedback_manager.get_latency_analysis()
+            
+            if latency_analysis and 'stats' in latency_analysis:
+                # Create a DataFrame for latency by method
+                latency_df = pd.DataFrame(latency_analysis['stats']['mean']).reset_index()
+                latency_df.columns = ['method', 'avg_latency']
+                
+                st.bar_chart(
+                    latency_df.set_index('method')['avg_latency'],
+                    use_container_width=True
+                )
+                st.caption("Average latency by retrieval method")
+                
+                # Show percentiles
+                with st.expander("📊 Latency Percentiles"):
+                    for method, percentiles in latency_analysis['percentiles'].items():
+                        st.write(f"**{method}:**")
+                        st.write(f"- P50: {percentiles['p50']:.1f} ms")
+                        st.write(f"- P90: {percentiles['p90']:.1f} ms")
+                        st.write(f"- P99: {percentiles['p99']:.1f} ms")
+            else:
+                st.info("No latency data available yet.")
+            
+            # Chart 4: Retrieval Method Usage
+            st.subheader("🔍 Retrieval Method Usage")
+            method_usage_df = feedback_manager.get_method_usage()
+            
+            if not method_usage_df.empty:
+                st.bar_chart(
+                    method_usage_df.set_index('method')['count'],
+                    use_container_width=True
+                )
+                st.caption("Usage distribution by retrieval method")
+                
+                # Show percentages
+                with st.expander("📊 Method Usage Percentages"):
+                    st.dataframe(method_usage_df[['method', 'percentage']], use_container_width=True)
+            else:
+                st.info("No method usage data available yet.")
+            
+            # Chart 6: User Satisfaction Scores
+            st.subheader("⭐ User Satisfaction Scores")
+            satisfaction_data = feedback_manager.get_satisfaction_distribution()
+            
+            if satisfaction_data and 'star_distribution' in satisfaction_data:
+                star_dist = satisfaction_data['star_distribution']
+                if star_dist:
+                    # Create DataFrame for star ratings
+                    star_df = pd.DataFrame([
+                        {'rating': f"{k} stars", 'count': v} 
+                        for k, v in star_dist.items()
+                    ])
+                    
+                    st.bar_chart(
+                        star_df.set_index('rating')['count'],
+                        use_container_width=True
+                    )
+                    st.caption("Distribution of star ratings")
+                    
+                    # Show satisfaction by method
+                    if 'satisfaction_by_method' in satisfaction_data:
+                        with st.expander("📊 Satisfaction by Method"):
+                            method_satisfaction = satisfaction_data['satisfaction_by_method']
+                            for method, rate in method_satisfaction.items():
+                                st.write(f"**{method}:** {rate}% satisfaction")
+                else:
+                    st.info("No star rating data available yet.")
+            else:
+                st.info("No satisfaction data available yet.")
+    
+    # Raw Data Section
+    with st.expander("📋 Raw Data"):
+        st.subheader("Recent Interactions")
+        
+        df = feedback_manager.get_combined_data()
+        if not df.empty:
+            # Show recent interactions
+            recent_df = df.tail(10)[['timestamp', 'query', 'method', 'latency', 'thumbs_up', 'star_rating']]
+            recent_df['timestamp'] = recent_df['timestamp'].dt.strftime('%Y-%m-%d %H:%M:%S')
+            recent_df.columns = ['Timestamp', 'Query', 'Method', 'Latency (ms)', 'Thumbs Up', 'Star Rating']
+            
+            st.dataframe(recent_df, use_container_width=True)
+            
+            # Download button for full data
+            csv_data = df.to_csv(index=False)
+            st.download_button(
+                label="📥 Download Full Data as CSV",
+                data=csv_data,
+                file_name="interactions_and_feedback.csv",
+                mime="text/csv"
+            )
+        else:
+            st.info("No interaction data available yet.")
+    
+    # Refresh button
+    if st.button("🔄 Refresh Dashboard"):
+        st.rerun()
 

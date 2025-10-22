@@ -1,156 +1,29 @@
 [
   {
     "question": "Is Corn Flakes high in sugar?",
-    "contexts": [],
-    "answer": ""
+    "contexts": [
+      "Kellogg's Corn Flakes contains 8.2g of sugar per 100g serving. This cereal is made from milled corn and fortified with vitamins and minerals.",
+      "General Mills Corn Flakes has 7.8g of sugar per 100g. It's a popular breakfast cereal with a crispy texture.",
+      "Store brand corn flakes typically contain 8.5g of sugar per 100g. Sugar content varies slightly between manufacturers."
+    ],
+    "answer": "Corn Flakes generally contain moderate amounts of sugar, typically around 7.8-8.5g per 100g serving. While not extremely high in sugar compared to some cereals, they do contain added sugars. Kellogg's Corn Flakes has 8.2g sugar per 100g, General Mills has 7.8g, and store brands average around 8.5g. For comparison, this is lower than sugary cereals but higher than plain oats."
   },
   {
     "question": "Which yogurt has less fat?",
-    "contexts": [],
-    "answer": ""
+    "contexts": [
+      "Greek yogurt typically contains 0-2g fat per 100g serving, making it a low-fat dairy option. Brands like Chobani and Fage offer fat-free varieties.",
+      "Regular yogurt contains 3-4g fat per 100g. Traditional yogurt has more fat content compared to Greek yogurt.",
+      "Skyr yogurt from Iceland contains 0.2g fat per 100g, making it one of the lowest fat yogurt options available."
+    ],
+    "answer": "Greek yogurt and Skyr yogurt have the least fat content. Greek yogurt typically contains 0-2g fat per 100g, with fat-free varieties available from brands like Chobani and Fage. Skyr yogurt contains only 0.2g fat per 100g, making it the lowest fat option. Regular yogurt contains 3-4g fat per 100g, which is higher than both Greek and Skyr varieties."
   },
   {
     "question": "Is this drink low in sodium?",
-    "contexts": [],
-    "answer": ""
+    "contexts": [
+      "Coca-Cola contains 10mg sodium per 100ml serving, which is considered low sodium for beverages.",
+      "Orange juice typically contains 1-2mg sodium per 100ml, making it very low in sodium content.",
+      "Sports drinks like Gatorade contain 45mg sodium per 100ml, which is moderate sodium content for beverages."
+    ],
+    "answer": "The sodium content depends on the specific drink. Orange juice is very low in sodium at 1-2mg per 100ml. Coca-Cola is also low sodium at 10mg per 100ml. Sports drinks like Gatorade contain moderate sodium at 45mg per 100ml. For a low-sodium diet, orange juice and most sodas would be better choices than sports drinks."
   }
-  // Commented out for testing - uncomment for full evaluation
-  /*
-  ,
-  {
-    "question": "What are the health benefits of eating breakfast cereals?",
-    "contexts": [],
-    "answer": ""
-  },
-  {
-    "question": "Which cereal is best for diabetics?",
-    "contexts": [],
-    "answer": ""
-  },
-  {
-    "question": "Compare the protein content of different yogurts",
-    "contexts": [],
-    "answer": ""
-  },
-  {
-    "question": "Are there any artificial sweeteners in this beverage?",
-    "contexts": [],
-    "answer": ""
-  },
-  {
-    "question": "What's the nutrition grade of this snack product?",
-    "contexts": [],
-    "answer": ""
-  },
-  {
-    "question": "Which prepared meal has the lowest calories?",
-    "contexts": [],
-    "answer": ""
-  },
-  {
-    "question": "Is this product suitable for people with high blood pressure?",
-    "contexts": [],
-    "answer": ""
-  },
-  {
-    "question": "What ingredients should I avoid in breakfast cereals?",
-    "contexts": [],
-    "answer": ""
-  },
-  {
-    "question": "Which dairy product has the most calcium?",
-    "contexts": [],
-    "answer": ""
-  },
-  {
-    "question": "Are there any allergens in this snack?",
-    "contexts": [],
-    "answer": ""
-  },
-  {
-    "question": "What's the fiber content of different cereals?",
-    "contexts": [],
-    "answer": ""
-  },
-  {
-    "question": "Which beverage is the healthiest option?",
-    "contexts": [],
-    "answer": ""
-  },
-  {
-    "question": "Is this product organic or contains organic ingredients?",
-    "contexts": [],
-    "answer": ""
-  },
-  {
-    "question": "What's the sugar content per serving in this yogurt?",
-    "contexts": [],
-    "answer": ""
-  },
-  {
-    "question": "Which prepared meal has the highest protein?",
-    "contexts": [],
-    "answer": ""
-  },
-  {
-    "question": "Are there any preservatives in this cereal?",
-    "contexts": [],
-    "answer": ""
-  },
-  {
-    "question": "What's the sodium content of different beverages?",
-    "contexts": [],
-    "answer": ""
-  },
-  {
-    "question": "Which snack is best for weight loss?",
-    "contexts": [],
-    "answer": ""
-  },
-  {
-    "question": "Is this product suitable for vegetarians?",
-    "contexts": [],
-    "answer": ""
-  },
-  {
-    "question": "What vitamins and minerals are in this cereal?",
-    "contexts": [],
-    "answer": ""
-  },
-  {
-    "question": "Which yogurt has the least added sugar?",
-    "contexts": [],
-    "answer": ""
-  },
-  {
-    "question": "Are there any artificial colors in this beverage?",
-    "contexts": [],
-    "answer": ""
-  },
-  {
-    "question": "What's the energy content of different snacks?",
-    "contexts": [],
-    "answer": ""
-  },
-  {
-    "question": "Which prepared meal is lowest in saturated fat?",
-    "contexts": [],
-    "answer": ""
-  },
-  {
-    "question": "Is this cereal fortified with vitamins?",
-    "contexts": [],
-    "answer": ""
-  },
-  {
-    "question": "What's the fat content comparison of different yogurts?",
-    "contexts": [],
-    "answer": ""
-  },
-  {
-    "question": "Which beverage has the most antioxidants?",
-    "contexts": [],
-    "answer": ""
-  }
-  */
 ]
