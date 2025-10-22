@@ -38,6 +38,9 @@ from langchain_core.retrievers import BaseRetriever
 # from langchain.chains import RetrievalQA
 from sklearn.metrics import label_ranking_average_precision_score
 
+# Import LLM evaluation module
+from llm_evaluation import LLMEvaluator
+
 # =============================================================================
 # --- Configuration ---
 # =============================================================================
@@ -175,13 +178,19 @@ Output a comma-separated list of document indices (best to worst)."""
 # =============================================================================
 # --- Tabs ---
 # =============================================================================
-tab_chat, tab_ingest, tab_eval = st.tabs(["💬 Chat Assistant", "🍽 Data Ingestion", "📊 Retrieval Evaluation"])
+tab_chat, tab_ingest, tab_eval, tab_llm_eval = st.tabs(["💬 Chat Assistant", "🍽 Data Ingestion", "📊 Retrieval Evaluation", "🎯 LLM Evaluation"])
 
 # -------------------------------------------------------------------------
 # 💬 CHAT TAB
 # -------------------------------------------------------------------------
 with tab_chat:
     st.title("🥗 AI Nutrition Label Explainer (LangChain + Qdrant)")
+    
+    # Show current prompt template status
+    if "best_prompt_template" in st.session_state:
+        st.success("✨ Using optimized prompt template from LLM evaluation")
+    else:
+        st.info("💡 Run LLM evaluation to optimize prompt template")
 
     category = st.text_input("Category filter (optional)")
     brand = st.text_input("Brand filter (optional)")
@@ -228,15 +237,20 @@ with tab_chat:
         context_text = "\n\n".join([d["payload"].get("text", "") for d in docs])
 
 
-        prompt = f"""You are a nutrition expert. 
+        # Use best prompt template if available, otherwise use default
+        if "best_prompt_template" in st.session_state:
+            prompt_template = st.session_state.best_prompt_template
+        else:
+            prompt_template = """You are a nutrition expert. 
 Answer the user's question using ONLY the following context (Open Food Facts product data). 
 Cite product names if relevant.
 
 Context:
-{context_text}
+{context}
 
-Question: {query}
-"""
+Question: {question}"""
+        
+        prompt = prompt_template.format(context=context_text, question=query)
         t0 = time.time()
         answer = llm.invoke(prompt).content
         latency = round((time.time() - t0) * 1000, 1)
@@ -326,4 +340,128 @@ with tab_eval:
         df = pd.DataFrame(results)
         st.dataframe(df, use_container_width=True)
         st.bar_chart(df.set_index("Method"))
+
+# -------------------------------------------------------------------------
+# 🎯 LLM EVALUATION TAB
+# -------------------------------------------------------------------------
+with tab_llm_eval:
+    st.header("🎯 LLM Evaluation with RAGAS")
+    st.write("""
+    Evaluate multiple prompt templates using RAGAS metrics:
+    - **Faithfulness**: Answer consistency with retrieved context
+    - **Answer Relevancy**: How relevant the answer is to the question
+    - **Context Precision**: Precision of retrieved contexts  
+    - **Context Recall**: Coverage of relevant information
+    """)
+    
+    # Initialize evaluator
+    if "evaluator" not in st.session_state:
+        st.session_state.evaluator = None
+    
+    if st.button("🚀 Run LLM Evaluation"):
+        with st.spinner("Initializing evaluator..."):
+            try:
+                st.session_state.evaluator = LLMEvaluator()
+                st.success("Evaluator initialized successfully!")
+            except Exception as e:
+                st.error(f"Failed to initialize evaluator: {e}")
+                st.stop()
+        
+        # Run evaluation
+        test_data_path = os.path.join(os.path.dirname(__file__), "data_ingestion", "llm_eval_test_set.json")
+        
+        if not os.path.exists(test_data_path):
+            st.error(f"Test dataset not found at {test_data_path}")
+            st.stop()
+        
+        with st.spinner("Running LLM evaluation... This may take several minutes."):
+            try:
+                results = st.session_state.evaluator.run_full_evaluation(test_data_path)
+                st.session_state.eval_results = results
+                st.success("Evaluation completed successfully!")
+            except Exception as e:
+                st.error(f"Evaluation failed: {e}")
+                st.stop()
+    
+    # Display results if available
+    if "eval_results" in st.session_state and st.session_state.eval_results:
+        results = st.session_state.eval_results
+        
+        st.subheader("📊 Evaluation Results")
+        
+        # Create results DataFrame
+        results_data = []
+        for result in results:
+            results_data.append({
+                'Prompt Template': result.prompt_name,
+                'Faithfulness': round(result.faithfulness, 3),
+                'Answer Relevancy': round(result.answer_relevancy, 3),
+                'Context Precision': round(result.context_precision, 3),
+                'Context Recall': round(result.context_recall, 3),
+                'Average Score': round(result.avg_score, 3)
+            })
+        
+        df_results = pd.DataFrame(results_data)
+        
+        # Highlight best performing prompt
+        best_idx = df_results['Average Score'].idxmax()
+        df_display = df_results.copy()
+        df_display = df_display.style.apply(
+            lambda x: ['background-color: lightgreen' if x.name == best_idx else '' for _ in x], 
+            axis=1
+        )
+        
+        st.dataframe(df_display, use_container_width=True)
+        
+        # Display charts
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.subheader("📈 Metrics Comparison")
+            metrics_df = df_results.set_index('Prompt Template')[['Faithfulness', 'Answer Relevancy', 'Context Precision', 'Context Recall']]
+            st.bar_chart(metrics_df)
+        
+        with col2:
+            st.subheader("🏆 Average Scores")
+            avg_df = df_results.set_index('Prompt Template')[['Average Score']]
+            st.bar_chart(avg_df)
+        
+        # Best prompt
+        best_prompt = results[best_idx]
+        st.success(f"🏆 **Best performing prompt**: {best_prompt.prompt_name} (Score: {best_prompt.avg_score:.3f})")
+        
+        # Sample answers
+        st.subheader("📝 Sample Answers")
+        
+        for i, result in enumerate(results):
+            with st.expander(f"{result.prompt_name} - Sample Answers"):
+                for j, answer in enumerate(result.sample_answers):
+                    st.write(f"**Sample {j+1}:**")
+                    st.write(answer)
+                    st.write("---")
+        
+        # Export results
+        csv_data = df_results.to_csv(index=False)
+        st.download_button(
+            label="📥 Download Results as CSV",
+            data=csv_data,
+            file_name="llm_evaluation_results.csv",
+            mime="text/csv"
+        )
+        
+        # Integration option
+        st.subheader("🔧 Integration")
+        if st.button("✨ Use Best Prompt in Chat"):
+            st.session_state.best_prompt_template = st.session_state.evaluator.prompt_templates[best_prompt.prompt_name]
+            st.success(f"Best prompt ({best_prompt.prompt_name}) is now active in the Chat Assistant tab!")
+    
+    # Show prompt templates
+    if st.expander("📋 View Prompt Templates"):
+        if "evaluator" in st.session_state and st.session_state.evaluator:
+            for name, template in st.session_state.evaluator.prompt_templates.items():
+                st.write(f"**{name}:**")
+                st.code(template)
+                st.write("---")
+        else:
+            st.info("Run evaluation first to view prompt templates.")
 
